@@ -33,6 +33,11 @@ class Stats:
         self.last_time = env.now
         self.last_queue_len = current_len
 
+    def finalize_queue(self, current_time):
+        time_passed = current_time - self.last_time
+        self.area += self.last_queue_len * time_passed
+        self.last_time = current_time
+
     def get_average_delay(self):
         return sum(self.delays) / len(self.delays) if self.delays else 0
 
@@ -40,4 +45,14 @@ class Stats:
         return self.lost_packets / self.total_packets if self.total_packets else 0
 
     def get_average_queue(self, total_time):
-        return self.area / total_time
+        return self.area / total_time if total_time else 0
+
+    def to_dict(self, total_time):
+        return {
+            "average_delay": self.get_average_delay(),
+            "loss_rate": self.get_loss_rate(),
+            "average_queue": self.get_average_queue(total_time),
+            "total_packets": self.total_packets,
+            "processed_packets": self.processed_packets,
+            "lost_packets": self.lost_packets,
+        }
