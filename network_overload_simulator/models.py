@@ -16,6 +16,9 @@ class Stats:
         self.last_queue_len = 0
         self.area = 0
 
+        # queue history for single simulation visualization
+        self.queue_history = [(0, 0)]
+
     def packet_generated(self):
         self.total_packets += 1
 
@@ -33,10 +36,15 @@ class Stats:
         self.last_time = env.now
         self.last_queue_len = current_len
 
+        self.queue_history.append((env.now, current_len))
+
     def finalize_queue(self, current_time):
         time_passed = current_time - self.last_time
         self.area += self.last_queue_len * time_passed
         self.last_time = current_time
+
+        if self.queue_history[-1] != (current_time, self.last_queue_len):
+            self.queue_history.append((current_time, self.last_queue_len))
 
     def get_average_delay(self):
         return sum(self.delays) / len(self.delays) if self.delays else 0
@@ -55,4 +63,7 @@ class Stats:
             "total_packets": self.total_packets,
             "processed_packets": self.processed_packets,
             "lost_packets": self.lost_packets,
+            "delays": self.delays.copy(),
+            "queue_times": [point[0] for point in self.queue_history],
+            "queue_lengths": [point[1] for point in self.queue_history],
         }

@@ -1,6 +1,7 @@
 import csv
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from datetime import datetime
 
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -170,14 +171,14 @@ class NetworkSimulationApp(ctk.CTk):
         )
         self.clear_button.pack(pady=6)
 
-        self.save_button = ctk.CTkButton(
+        self.save_charts_button = ctk.CTkButton(
             self.sidebar_frame,
-            text="Save (chart)",
+            text="Save charts",
             width=button_width,
             height=button_height,
-            command=self.save_chart
+            command=self.save_charts
         )
-        self.save_button.pack(pady=6)
+        self.save_charts_button.pack(pady=6)
 
         self.export_button = ctk.CTkButton(
             self.sidebar_frame,
@@ -384,15 +385,67 @@ class NetworkSimulationApp(ctk.CTk):
         self.applied_textbox.insert("0.0", text)
         self.applied_textbox.configure(state="disabled")
 
-    # -----------------------------
-    # button actions (skeleton)
-    # -----------------------------
+    def _draw_single_run_chart(self, result):
+        self.figure.clear()
+        axis = self.figure.add_subplot(111)
+
+        axis.step(
+            result["queue_times"],
+            result["queue_lengths"],
+            where="post",
+            linewidth=2
+        )
+        axis.set_title("Queue length over time")
+        axis.set_xlabel("Time")
+        axis.set_ylabel("Queue length")
+        axis.grid(True, linestyle="--", alpha=0.5)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+
+    def _draw_series_charts(self, result):
+        self.figure.clear()
+
+        self.ax1 = self.figure.add_subplot(131)
+        self.ax2 = self.figure.add_subplot(132)
+        self.ax3 = self.figure.add_subplot(133)
+
+        rates = result["rates"]
+        delays = result["delays"]
+        losses = result["losses"]
+        queues = result["queues"]
+
+        self.ax1.plot(rates, delays, marker="o")
+        self.ax2.plot(rates, losses, marker="o")
+        self.ax3.plot(rates, queues, marker="o")
+
+        self.ax1.set_title("Average delay")
+        self.ax2.set_title("Loss rate")
+        self.ax3.set_title("Average queue")
+
+        self.ax1.set_xlabel("Rate")
+        self.ax2.set_xlabel("Rate")
+        self.ax3.set_xlabel("Rate")
+
+        self.ax1.set_ylabel("Delay")
+        self.ax2.set_ylabel("Loss")
+        self.ax3.set_ylabel("Queue")
+
+        self.ax1.grid(True, linestyle="--", alpha=0.5)
+        self.ax2.grid(True, linestyle="--", alpha=0.5)
+        self.ax3.grid(True, linestyle="--", alpha=0.5)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+
     def apply_parameters(self):
         self.applied_config = {
             key: var.get()
             for key, var in self.param_vars.items()
         }
         self.update_applied_parameters_box()
+
         self.set_status("parameters applied")
         self.log_event("Parameters applied")
 
@@ -418,8 +471,8 @@ class NetworkSimulationApp(ctk.CTk):
             raise ValueError("Arrival rate must be positive.")
         if processing_time <= 0:
             raise ValueError("Processing time must be positive.")
-        if max_queue < 0:
-            raise ValueError("Max queue must be non-negative.")
+        if max_queue <= 0:
+            raise ValueError("Max queue must be greater than 0.")
         if simulation_time <= 0:
             raise ValueError("Simulation time must be positive.")
         if runs_per_rate <= 0:
@@ -471,9 +524,12 @@ class NetworkSimulationApp(ctk.CTk):
             self.result_vars["total_packets"].set(str(result["total_packets"]))
             self.result_vars["processed_packets"].set(str(result["processed_packets"]))
             self.result_vars["lost_packets"].set(str(result["lost_packets"]))
+
             self.last_single_result = result
             self.last_series_result = None
             self.last_run_type = "single"
+
+            self._draw_single_run_chart(result)
 
             self.set_status("single simulation finished")
             self.log_event("Single simulation finished")
@@ -493,39 +549,11 @@ class NetworkSimulationApp(ctk.CTk):
             config = self._parse_applied_config()
             result = backend_run_series_simulation(config, logger=self.log_event)
 
-            self.ax1.clear()
-            self.ax2.clear()
-            self.ax3.clear()
-
-            rates = result["rates"]
-            delays = result["delays"]
-            losses = result["losses"]
-            queues = result["queues"]
             self.last_series_result = result
+            self.last_single_result = None
             self.last_run_type = "series"
 
-            self.ax1.plot(rates, delays, marker="o")
-            self.ax2.plot(rates, losses, marker="o")
-            self.ax3.plot(rates, queues, marker="o")
-
-            self.ax1.set_title("Average delay")
-            self.ax2.set_title("Loss rate")
-            self.ax3.set_title("Average queue")
-
-            self.ax1.set_xlabel("Rate")
-            self.ax2.set_xlabel("Rate")
-            self.ax3.set_xlabel("Rate")
-
-            self.ax1.set_ylabel("Delay")
-            self.ax2.set_ylabel("Loss")
-            self.ax3.set_ylabel("Queue")
-
-            self.ax1.grid(True, linestyle="--", alpha=0.5)
-            self.ax2.grid(True, linestyle="--", alpha=0.5)
-            self.ax3.grid(True, linestyle="--", alpha=0.5)
-
-            self.figure.tight_layout()
-            self.canvas.draw()
+            self._draw_series_charts(result)
 
             self.set_status("series simulation finished")
             self.log_event("Series of simulations finished")
@@ -534,24 +562,24 @@ class NetworkSimulationApp(ctk.CTk):
             self.log_event(f"Series simulation error: {error}")
             messagebox.showerror("Simulation error", str(error))
 
-    def save_chart(self):
-        self.log_event("Save chart clicked")
+    def save_charts(self):
+        self.log_event("Save charts clicked")
         if self.last_series_result is None:
             messagebox.showwarning(
                 "Warning",
                 "Run series simulation first to generate charts for export.",
             )
-            self.log_event("Chart save aborted: no series data")
+            self.log_event("Charts save aborted: no series data")
             return
 
         target_path = filedialog.asksaveasfilename(
-            title="Save chart images",
+            title="Save charts images",
             defaultextension=".png",
             filetypes=[("PNG image", "*.png")],
             initialfile="network_simulation_chart.png",
         )
         if not target_path:
-            self.log_event("Chart save cancelled by user")
+            self.log_event("Charts save cancelled by user")
             return
 
         selected = Path(target_path)
@@ -579,12 +607,13 @@ class NetworkSimulationApp(ctk.CTk):
             chart_figure.savefig(chart_path)
             saved_paths.append(str(chart_path))
 
-        self.set_status("chart saved")
-        self.log_event(f"Chart saved to {save_dir}")
+        self.set_status("charts saved")
+        self.log_event(f"Charts saved to {save_dir}")
         messagebox.showinfo("Saved", "Charts saved:\n" + "\n".join(saved_paths))
 
     def export_results(self):
         self.log_event("Export clicked")
+
         if not self.applied_config:
             messagebox.showwarning("Warning", "Apply parameters before export.")
             self.log_event("Export aborted: parameters are not applied")
@@ -601,40 +630,124 @@ class NetworkSimulationApp(ctk.CTk):
             filetypes=[("CSV file", "*.csv")],
             initialfile="network_simulation_export.csv",
         )
+
         if not target_path:
             self.log_event("Export cancelled by user")
             return
 
-        export_rows = []
-        export_rows.append(["section", "key", "value"])
-        export_rows.append(["applied_parameters", "arrival_rate", self.applied_config["arrival_rate"]])
-        export_rows.append(["applied_parameters", "processing_time", self.applied_config["processing_time"]])
-        export_rows.append(["applied_parameters", "max_queue", self.applied_config["max_queue"]])
-        export_rows.append(["applied_parameters", "simulation_time", self.applied_config["simulation_time"]])
-        export_rows.append(["applied_parameters", "runs_per_rate", self.applied_config["runs_per_rate"]])
-        export_rows.append(["applied_parameters", "rates_list", self.applied_config["rates_list"]])
+        try:
+            csv_path = Path(target_path)
+            txt_path = csv_path.with_suffix(".txt")
 
-        if self.last_single_result is not None:
-            export_rows.append(["single_run_results", "average_delay", f"{self.last_single_result['average_delay']:.6f}"])
-            export_rows.append(["single_run_results", "loss_rate", f"{self.last_single_result['loss_rate']:.6f}"])
-            export_rows.append(["single_run_results", "average_queue", f"{self.last_single_result['average_queue']:.6f}"])
-            export_rows.append(["single_run_results", "total_packets", self.last_single_result["total_packets"]])
-            export_rows.append(["single_run_results", "processed_packets", self.last_single_result["processed_packets"]])
-            export_rows.append(["single_run_results", "lost_packets", self.last_single_result["lost_packets"]])
+            # -----------------------------
+            # CSV export
+            # -----------------------------
+            with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
 
-        if self.last_series_result is not None:
-            export_rows.append(["series_run_results", "rates_array", ",".join(map(str, self.last_series_result["rates"]))])
-            export_rows.append(["series_run_results", "delays_array", ",".join(map(str, self.last_series_result["delays"]))])
-            export_rows.append(["series_run_results", "losses_array", ",".join(map(str, self.last_series_result["losses"]))])
-            export_rows.append(["series_run_results", "queues_array", ",".join(map(str, self.last_series_result["queues"]))])
+                writer.writerow(["Simulation Results Export"])
+                writer.writerow(["Generated at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+                writer.writerow([])
 
-        with open(target_path, "w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerows(export_rows)
+                writer.writerow(["Applied Parameters"])
+                for key, value in self.applied_config.items():
+                    writer.writerow([key, value])
 
-        self.set_status("results exported")
-        self.log_event(f"Results exported to {target_path}")
-        messagebox.showinfo("Saved", f"Results exported to:\n{target_path}")
+                writer.writerow([])
+
+                if self.last_run_type == "single" and self.last_single_result is not None:
+                    writer.writerow(["Single Run Results"])
+                    writer.writerow(["metric", "value"])
+                    writer.writerow(["average_delay", f"{self.last_single_result['average_delay']:.6f}"])
+                    writer.writerow(["loss_rate", f"{self.last_single_result['loss_rate']:.6f}"])
+                    writer.writerow(["average_queue", f"{self.last_single_result['average_queue']:.6f}"])
+                    writer.writerow(["total_packets", self.last_single_result["total_packets"]])
+                    writer.writerow(["processed_packets", self.last_single_result["processed_packets"]])
+                    writer.writerow(["lost_packets", self.last_single_result["lost_packets"]])
+
+                elif self.last_run_type == "series" and self.last_series_result is not None:
+                    writer.writerow(["Series Run Results"])
+                    writer.writerow(["rate", "average_delay", "loss_rate", "average_queue"])
+
+                    for rate, delay, loss, queue in zip(
+                        self.last_series_result["rates"],
+                        self.last_series_result["delays"],
+                        self.last_series_result["losses"],
+                        self.last_series_result["queues"],
+                    ):
+                        writer.writerow([rate, delay, loss, queue])
+
+            # -----------------------------
+            # TXT report export
+            # -----------------------------
+            with open(txt_path, "w", encoding="utf-8") as txt_file:
+                txt_file.write("NETWORK CONGESTION SIMULATOR REPORT\n")
+                txt_file.write("=" * 42 + "\n\n")
+                txt_file.write(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                txt_file.write(f"Run type: {self.last_run_type}\n\n")
+
+                txt_file.write("APPLIED PARAMETERS\n")
+                txt_file.write("-" * 20 + "\n")
+                for key, value in self.applied_config.items():
+                    txt_file.write(f"{key}: {value}\n")
+
+                txt_file.write("\n")
+
+                if self.last_run_type == "single" and self.last_single_result is not None:
+                    txt_file.write("SINGLE SIMULATION RESULTS\n")
+                    txt_file.write("-" * 28 + "\n")
+                    txt_file.write(
+                        f"Average delay: {self.last_single_result['average_delay']:.2f}\n"
+                    )
+                    txt_file.write(
+                        f"Loss rate: {self.last_single_result['loss_rate']:.2%}\n"
+                    )
+                    txt_file.write(
+                        f"Average queue: {self.last_single_result['average_queue']:.2f}\n"
+                    )
+                    txt_file.write(
+                        f"Total packets: {self.last_single_result['total_packets']}\n"
+                    )
+                    txt_file.write(
+                        f"Processed packets: {self.last_single_result['processed_packets']}\n"
+                    )
+                    txt_file.write(
+                        f"Lost packets: {self.last_single_result['lost_packets']}\n"
+                    )
+
+                elif self.last_run_type == "series" and self.last_series_result is not None:
+                    txt_file.write("SERIES OF SIMULATIONS RESULTS\n")
+                    txt_file.write("-" * 32 + "\n")
+                    txt_file.write(
+                        "The following results show how the main performance metrics "
+                        "change depending on the packet arrival rate.\n\n"
+                    )
+
+                    for rate, delay, loss, queue in zip(
+                        self.last_series_result["rates"],
+                        self.last_series_result["delays"],
+                        self.last_series_result["losses"],
+                        self.last_series_result["queues"],
+                    ):
+                        txt_file.write(
+                            f"For arrival rate {rate}, the average delay is {delay:.2f}, "
+                            f"the loss rate is {loss:.2%}, "
+                            f"and the average queue length is {queue:.2f}.\n"
+                        )
+
+            self.set_status("results exported")
+            self.log_event(f"Results exported to {csv_path}")
+            self.log_event(f"Text report exported to {txt_path}")
+
+            messagebox.showinfo(
+                "Saved",
+                f"Results exported successfully:\n\nCSV: {csv_path}\nTXT: {txt_path}"
+            )
+
+        except Exception as error:
+            self.set_status("export failed")
+            self.log_event(f"Export error: {error}")
+            messagebox.showerror("Export error", str(error))
 
 
 if __name__ == "__main__":
